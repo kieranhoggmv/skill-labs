@@ -1,0 +1,752 @@
+schema: 1
+id: tdd-red-green-refactor
+title: "Implementing the TDD Red-Green-Refactor Cycle"
+module: 4
+unit: 2
+progression: linear
+
+description: |
+  You've been asked to build a **User ID Validator**, `validate_user_id(user_id)`, for your microservice.
+  You'll build it with **Test-Driven Development (TDD)**: write a failing test first (**Red**), write just
+  enough code to make it pass (**Green**), then tidy up without breaking anything (**Refactor**).
+
+  The function must satisfy three business rules:
+
+  | Rule | Type | Behaviour |
+  | :--- | :--- | :--- |
+  | 1 | Happy path | Returns `True` for a valid, positive integer ID |
+  | 2 | Failure path | Returns `False` for a negative number |
+  | 3 | Edge case | Raises a `TypeError` if the ID is a string or a float |
+
+  All of your work happens in `${lab_dir}`, in two files:
+
+  - `test_validator.py` - your tests
+  - `validator.py` - your implementation
+
+vars:
+  lab_dir: /home/labuser/lab
+
+steps:
+  # ---------------------------------------------------------------------------
+  # TASK 1: Red - test Rule 1 and set up
+  # ---------------------------------------------------------------------------
+  - id: install-pytest
+    title: "Install and verify pytest"
+    instructions: |
+      TDD starts with a test runner. You'll use **pytest**.
+
+      1. Install pytest globally:
+
+         ```bash
+         {%pip install -U pytest%}
+         ```
+
+      3. Verify the installation:
+
+         ```bash
+         {%pytest --version%}
+         ```
+
+         Your output should look similar to `pytest 9.x.x`.
+    hints:
+      - id: install-hint-1
+        text: "Run the install command exactly as written. There's no virtual environment in this lab - pytest should be installed system-wide."
+      - id: install-hint-2
+        text: "If `pip` isn't found, try `pip3 install -U pytest` or `python3 -m pip install -U pytest`."
+        after_failed_attempts: 1
+      - id: install-hint-3
+        text: "If you see an `externally-managed-environment` error, the system Python is protected. In this disposable lab VM you can add `--break-system-packages` to the install command."
+        after_failed_attempts: 2
+    checks:
+      - id: pytest-installed
+        description: "pytest is installed and on the PATH"
+        run: pytest --version 2>&1
+        expect:
+          exit_code: 0
+          stdout:
+            matches: 'pytest [0-9]+\.[0-9]+'
+        feedback_on_fail: "pytest isn't available yet. Run `pip install -U pytest`, then `pytest --version`."
+        feedback_rules:
+          - when:
+              exit_code: 127
+            message: "The `pytest` command wasn't found. Has the install finished without errors? If pip put it somewhere not on your PATH, open a new terminal and try again."
+
+  - id: baseline-run
+    title: "Run pytest with no tests"
+    instructions: |
+      Before writing any tests, see what pytest does when there's nothing to run.
+
+      1. Make sure you're in `${lab_dir}`.
+      2. Run pytest with no arguments:
+
+         ```bash
+         pytest
+         ```
+
+      You should see that **no tests were found**. Then check the exit code of that run:
+
+      ```bash
+      echo $?
+      ```
+
+      Why would a test runner use a non-zero exit code when there are no tests to run?
+    hints:
+      - id: baseline-hint-1
+        text: "pytest only looks in the current folder and below. Run `pwd` to check you're in the lab folder."
+      - id: baseline-hint-2
+        text: "`echo $?` must be run immediately after `pytest`, or it will report the exit code of whatever you ran last."
+        reveal_after: 3m
+    checks:
+      - id: baseline-no-tests
+        description: "pytest runs but finds no tests yet"
+        run: pytest
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code: 5
+          stdout:
+            contains: "no tests ran"
+        feedback_on_fail: "pytest should report 'no tests ran' at this point. Check that `test_validator.py` is still empty."
+        feedback_rules:
+          - when:
+              exit_code: 0
+            message: "pytest found passing tests, but you haven't written any yet. Empty `test_validator.py` so you can start from a clean baseline."
+          - when:
+              exit_code: 127
+            message: "The `pytest` command wasn't found. Go back and check the installation."
+
+  - id: red-rule-1-write
+    title: "Red: write the test for Rule 1"
+    instructions: |
+      Now write your first test, **before** any implementation exists.
+
+      Open `test_validator.py` and add:
+
+      - an import of `validate_user_id` from the `validator` module
+      - a test function (its name must start with `test_`) that asserts **Rule 1**:
+        `validate_user_id(101)` returns `True`
+
+      Don't touch `validator.py` yet. The function doesn't exist, and that's the point.
+    hints:
+      - id: r1-write-hint-1
+        text: "A pytest test is just a function whose name starts with `test_`, containing a plain `assert` statement."
+      - id: r1-write-hint-2
+        text: "Your test file needs to import the function it's testing. It doesn't exist yet, but that's expected - you'll deal with it in the next step."
+        reveal_after: 3m
+      - id: r1-write-hint-3
+        text: |
+          Here's the shape of it:
+
+          ```python
+          from validator import validate_user_id
+
+          def test_valid_positive_id_returns_true():
+              assert validate_user_id(101) is True
+          ```
+        reveal: on_request
+    checks:
+      - id: r1-test-compiles
+        description: "test_validator.py is valid Python"
+        run: python3 -m py_compile test_validator.py
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+        feedback_on_fail: "`test_validator.py` has a syntax error. Check indentation, colons and brackets."
+      - id: r1-test-content
+        description: "test_validator.py contains a test asserting Rule 1"
+        depends_on: [r1-test-compiles]
+        run: cat test_validator.py
+        cwd: ${lab_dir}
+        expect:
+          files:
+            - path: ${lab_dir}/test_validator.py
+              matches: 'def test_'
+            - path: ${lab_dir}/test_validator.py
+              contains: "validate_user_id(101)"
+            - path: ${lab_dir}/test_validator.py
+              contains: "assert"
+        feedback_on_fail: "Your test file needs a function whose name starts with `test_` that asserts `validate_user_id(101)` returns `True`."
+
+  - id: red-rule-1-run
+    title: "Red: watch the test fail"
+    instructions: |
+      Run your tests:
+
+      ```bash
+      pytest
+      ```
+
+      The test **must fail**. A failing test proves two things: the test can actually detect a problem,
+      and the feature genuinely doesn't exist yet. This is the **Red** state.
+
+      Read the output from the bottom up. What does pytest tell you is wrong?
+    hints:
+      - id: r1-run-hint-1
+        text: "Read the last lines of the report first. They summarise how many tests failed or errored."
+      - id: r1-run-hint-2
+        text: "Because `validator.py` is empty, you'll probably see an `ImportError` (cannot import name `validate_user_id`). That counts as Red: the test can't pass because the code doesn't exist."
+        reveal_after: 3m
+      - id: r1-run-hint-3
+        text: "Make sure you saved `test_validator.py`, and that you're running `pytest` from inside `${lab_dir}`."
+        after_failed_attempts: 2
+    checks:
+      - id: r1-is-red
+        description: "The Rule 1 test is failing"
+        run: pytest
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code:
+            not: 0
+          stdout:
+            matches: '[0-9]+ (failed|error)'
+        feedback_on_fail: "pytest should report a failing test (Red). Check your test is saved and `validator.py` is still empty."
+        feedback_rules:
+          - when:
+              exit_code: 0
+            message: "Your test passed, but it shouldn't have. Is `validator.py` really empty? In Red, the test must fail before you write any code."
+          - when:
+              exit_code: 5
+            message: "pytest didn't find any tests. The file must be called `test_validator.py` and your function's name must start with `test_`."
+
+  # ---------------------------------------------------------------------------
+  # TASK 2: Green/Refactor - implement Rule 1
+  # ---------------------------------------------------------------------------
+  - id: green-rule-1
+    title: "Green: write the minimum code for Rule 1"
+    instructions: |
+      Make the failing test pass by writing the **absolute minimum** code in `validator.py`.
+
+      "Minimum" really does mean minimum:
+
+      - Define `validate_user_id(user_id)`.
+      - Only do what the single test demands. Don't handle negatives or wrong types yet, because no test is asking for that.
+
+      Run `pytest` until it goes **Green**.
+    hints:
+      - id: g1-hint-1
+        text: "What's the smallest thing a function can do to return `True` for 101?"
+      - id: g1-hint-2
+        text: "You don't need any `if` statements yet. One test means one behaviour."
+        reveal_after: 4m
+      - id: g1-hint-3
+        text: |
+          The simplest passing code looks almost too simple, and that's fine:
+
+          ```python
+          def validate_user_id(user_id):
+              return True
+          ```
+
+          The next failing test will force you to make it smarter.
+        reveal: on_request
+    checks:
+      - id: g1-function-defined
+        description: "validator.py defines validate_user_id"
+        run: python3 -m py_compile validator.py
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+          files:
+            - path: ${lab_dir}/validator.py
+              contains: "def validate_user_id"
+        feedback_on_fail: "`validator.py` must define `validate_user_id(user_id)` and be valid Python."
+      - id: g1-tests-pass
+        description: "The Rule 1 test passes (Green)"
+        depends_on: [g1-function-defined]
+        run: pytest
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '[0-9]+ passed'
+            not_contains: "failed"
+        feedback_on_fail: "pytest should report your test passing (Green)."
+        feedback_rules:
+          - when:
+              stdout:
+                contains: "ImportError"
+            message: "pytest can't import `validate_user_id`. Check the function name and that it's in `validator.py`."
+          - when:
+              stdout:
+                contains: "failed"
+            message: "The test still fails. Read the assertion output: what does your function return for 101?"
+      - id: regress-rule-1
+        description: "Rule 1 keeps working throughout the lab"
+        depends_on: [g1-function-defined]
+        regression: true
+        run: |-
+          python3 -c "from validator import validate_user_id as v; assert v(101) is True"
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+        feedback_on_fail: "Rule 1 has stopped working: `validate_user_id(101)` should return `True`. A recent change has broken an earlier fix."
+
+  - id: refactor-rule-1
+    title: "Refactor: tidy up Rule 1"
+    instructions: |
+      With a passing test as your safety net, improve the **quality** of `validator.py` without changing what it does.
+
+      Things to consider:
+
+      - a clear docstring explaining what the function does
+      - type hints on the parameter and return value
+      - PEP 8 style: `snake_case` names, 4-space indentation, blank lines between definitions
+
+      Run `pytest` after every small edit. If the test goes red, undo your last change.
+    hints:
+      - id: ref1-hint-1
+        text: "Refactoring changes the *structure* of code, not its *behaviour*. Your test is the proof that behaviour hasn't changed."
+      - id: ref1-hint-2
+        text: "A docstring is a triple-quoted string as the first line inside the function. Type hints look like `def f(x: int) -> bool:`."
+        reveal_after: 3m
+    checks:
+      - id: ref1-still-green
+        description: "Tests still pass after refactoring"
+        run: pytest
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '[0-9]+ passed'
+        feedback_on_fail: "Your refactor broke the test. Undo your last change and try a smaller step."
+      - id: ref1-docstring
+        description: "validator.py has a docstring (advisory)"
+        required: false
+        run: python3 -m py_compile validator.py
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+          files:
+            - path: ${lab_dir}/validator.py
+              contains: '"""'
+        feedback_on_fail: "Consider adding a short docstring to describe what the function does."
+      - id: ref1-type-hints
+        description: "validate_user_id has type hints (advisory)"
+        required: false
+        run: python3 -m py_compile validator.py
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+          files:
+            - path: ${lab_dir}/validator.py
+              matches: 'def validate_user_id\(user_id[^)]*\)\s*->\s*bool'
+        feedback_on_fail: "Consider adding type hints, e.g. a `-> bool` return annotation."
+
+  # ---------------------------------------------------------------------------
+  # TASK 3: TDD iteration - implement Rule 2
+  # ---------------------------------------------------------------------------
+  - id: red-rule-2-write
+    title: "Red: write the test for Rule 2"
+    instructions: |
+      Start the next TDD cycle with a **new test** for **Rule 2**: a negative ID returns `False`.
+
+      In `test_validator.py`, add a second test function that asserts `validate_user_id(-5)` returns `False`.
+
+      Keep your Rule 1 test as it is. Don't edit `validator.py` yet.
+    hints:
+      - id: r2-write-hint-1
+        text: "Add a second function alongside the first. Give it a name that describes the behaviour, such as `test_negative_id_returns_false`."
+      - id: r2-write-hint-2
+        text: |
+          Following the same pattern as before:
+
+          ```python
+          def test_negative_id_returns_false():
+              assert validate_user_id(-5) is False
+          ```
+        reveal: on_request
+    checks:
+      - id: r2-two-tests-collected
+        description: "pytest now collects at least two tests"
+        run: pytest --collect-only -q
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '[2-9] tests collected'
+        feedback_on_fail: "pytest should now find two tests. Is your new function named `test_...` and saved in `test_validator.py`?"
+      - id: r2-negative-id-tested
+        description: "A test uses a negative ID"
+        run: cat test_validator.py
+        cwd: ${lab_dir}
+        expect:
+          files:
+            - path: ${lab_dir}/test_validator.py
+              matches: 'validate_user_id\(-[0-9]+\)'
+        feedback_on_fail: "Your new test should call `validate_user_id` with a negative number such as `-5`."
+
+  - id: red-rule-2-run
+    title: "Red: confirm the new test fails"
+    instructions: |
+      Run `pytest`. You should see:
+
+      - your **Rule 1 test passing**
+      - your **Rule 2 test failing**
+
+      One new failing test is the signal that tells you exactly what to build next.
+    hints:
+      - id: r2-run-hint-1
+        text: "pytest's summary line should read something like `1 failed, 1 passed`."
+      - id: r2-run-hint-2
+        text: "If both tests pass, your Rule 1 code already handles negatives, which means it did more than the minimum. Temporarily put `validator.py` back to the simplest code that passes Rule 1 so you can see the new test fail."
+        after_failed_attempts: 1
+    checks:
+      - id: r2-is-red
+        description: "Exactly the new test is failing; Rule 1 still passes"
+        run: pytest
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code:
+            not: 0
+          stdout:
+            contains: "1 failed"
+            matches: '1 passed'
+        feedback_on_fail: "You should see one failing test (Rule 2) and one passing test (Rule 1)."
+        feedback_rules:
+          - when:
+              exit_code: 0
+            message: "Your new test passed straight away, so it isn't Red. That usually means your Rule 1 code already handled negatives, which was more than the minimum. Put `validator.py` back to the simplest code that passes Rule 1, confirm the new test fails, then continue."
+          - when:
+              stdout:
+                contains: "2 failed"
+            message: "Both tests are failing, but your Rule 1 test should still pass. Did an earlier change break `validator.py`?"
+
+  - id: green-rule-2
+    title: "Green: make both tests pass"
+    instructions: |
+      Update `validate_user_id` in `validator.py` so that **both** tests pass:
+
+      - positive IDs return `True`
+      - negative IDs return `False`
+
+      Write only what's needed to satisfy these two tests, then run `pytest` until it's **Green**.
+    hints:
+      - id: g2-hint-1
+        text: "What condition separates a valid ID from a negative one?"
+      - id: g2-hint-2
+        text: "Compare `user_id` to `0`. Your function should work for *any* positive or negative ID, not just 101 and -5."
+        reveal_after: 4m
+      - id: g2-hint-3
+        text: "You could use an `if user_id > 0: return True` / `return False` structure. You'll simplify it in the Refactor step."
+        reveal: on_request
+    checks:
+      - id: g2-tests-pass
+        description: "Both tests pass (Green)"
+        run: pytest
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '[2-9] passed'
+            not_contains: "failed"
+        feedback_on_fail: "Both tests should pass. Read the failure output to see which assertion is failing."
+      - id: g2-generalises
+        description: "The function works for IDs beyond those in the tests"
+        run: |-
+          python3 -c "from validator import validate_user_id as v; assert v(1) is True; assert v(5000) is True; assert v(-1) is False; assert v(-1000) is False"
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+        feedback_on_fail: "Your code passes the tests but doesn't work for other IDs. It should return `True` for any positive integer and `False` for any negative one, not just 101 and -5."
+      - id: regress-rule-2
+        description: "Rule 2 keeps working throughout the lab"
+        regression: true
+        run: |-
+          python3 -c "from validator import validate_user_id as v; assert v(-5) is False"
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+        feedback_on_fail: "Rule 2 has stopped working: `validate_user_id(-5)` should return `False`. A recent change has broken an earlier fix."
+
+  - id: refactor-rule-2
+    title: "Refactor: simplify the combined logic"
+    instructions: |
+      Both rules now pass. Refactor `validator.py` for **maximum simplicity and clarity**.
+
+      Ask yourself:
+
+      - Can the function be written without an `if`/`else` at all?
+      - Does the docstring still describe what the function does?
+
+      Run `pytest` after each change to stay Green.
+    hints:
+      - id: ref2-hint-1
+        text: "A comparison such as `user_id > 0` already *is* a boolean. Do you need to wrap it in an `if` statement?"
+      - id: ref2-hint-2
+        text: "Try replacing the `if`/`return True`/`return False` structure with a single `return` of the comparison."
+        reveal_after: 3m
+    checks:
+      - id: ref2-still-green
+        description: "Tests still pass after refactoring"
+        run: pytest
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '[2-9] passed'
+        feedback_on_fail: "Your refactor broke a test. Undo your last change and try a smaller step."
+      - id: ref2-no-else
+        description: "No unnecessary else branch (advisory)"
+        required: false
+        run: python3 -m py_compile validator.py
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+          files:
+            - path: ${lab_dir}/validator.py
+              not_contains: "else:"
+        feedback_on_fail: "Can you simplify further? A function that just returns a true/false condition rarely needs `else`."
+
+  # ---------------------------------------------------------------------------
+  # TASK 4: TDD for error handling - implement Rule 3
+  # ---------------------------------------------------------------------------
+  - id: red-rule-3-write
+    title: "Red: write the test for Rule 3"
+    instructions: |
+      Now the most important edge case: **non-integer IDs must raise a `TypeError`**.
+
+      In `test_validator.py`, add a third test that checks `validate_user_id` raises a `TypeError` when passed
+      a **string** (e.g. `"abc"`) or a **float** (e.g. `3.14`).
+
+      Use pytest's `pytest.raises` context manager, which fails the test if the expected exception is *not* raised.
+      Remember to import `pytest`.
+    hints:
+      - id: r3-write-hint-1
+        text: "`pytest.raises(TypeError)` is used in a `with` block. The test passes only if the code inside the block raises that exception."
+      - id: r3-write-hint-2
+        text: "Test a float as well as a string. Python itself raises a `TypeError` when comparing a string to a number, so a string-only test could pass without you writing anything."
+        reveal_after: 3m
+      - id: r3-write-hint-3
+        text: |
+          Here's the pattern:
+
+          ```python
+          import pytest
+
+          def test_non_integer_id_raises_type_error():
+              with pytest.raises(TypeError):
+                  validate_user_id("abc")
+              with pytest.raises(TypeError):
+                  validate_user_id(3.14)
+          ```
+        reveal: on_request
+    checks:
+      - id: r3-three-tests-collected
+        description: "pytest now collects at least three tests"
+        run: pytest --collect-only -q
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '[3-9] tests collected'
+        feedback_on_fail: "pytest should now find three tests. Is your new function named `test_...` and saved in `test_validator.py`?"
+      - id: r3-uses-raises
+        description: "A test checks for TypeError with pytest.raises"
+        run: cat test_validator.py
+        cwd: ${lab_dir}
+        expect:
+          files:
+            - path: ${lab_dir}/test_validator.py
+              matches: 'raises\(TypeError'
+        feedback_on_fail: "Use `pytest.raises(TypeError)` in a `with` block so the test checks for that specific exception."
+      - id: r3-covers-float
+        description: "A float input is tested (advisory)"
+        required: false
+        run: cat test_validator.py
+        cwd: ${lab_dir}
+        expect:
+          files:
+            - path: ${lab_dir}/test_validator.py
+              matches: '[0-9]+\.[0-9]+'
+        feedback_on_fail: "Add a float case such as `3.14`. Python raises `TypeError` for strings on its own, so a float is what makes this a real Red."
+
+  - id: red-rule-3-run
+    title: "Red: confirm the test fails for the right reason"
+    instructions: |
+      Run `pytest`. The Rule 3 test should **fail**, and it should fail *for the right reason*: your function
+      doesn't raise the `TypeError` that the test expects.
+
+      Look in the output for the line `DID NOT RAISE`. A failing test isn't automatically a useful one.
+      If it fails because of a typo or a missing import, it isn't telling you what to build.
+    hints:
+      - id: r3-run-hint-1
+        text: "Look through the failure output for `DID NOT RAISE <class 'TypeError'>`. That's pytest saying the code ran without raising the exception you expected."
+      - id: r3-run-hint-2
+        text: "If you see `NameError: name 'pytest' is not defined`, you've forgotten `import pytest` at the top of the test file."
+        after_failed_attempts: 1
+    checks:
+      - id: r3-is-red
+        description: "Rule 3 test fails because no TypeError is raised"
+        run: pytest
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code:
+            not: 0
+          stdout:
+            contains: "DID NOT RAISE"
+            matches: '[0-9]+ failed'
+        feedback_on_fail: "The test should fail with `DID NOT RAISE`, because your function doesn't raise a `TypeError` yet."
+        feedback_rules:
+          - when:
+              exit_code: 0
+            message: "Your Rule 3 test passed immediately, so it isn't Red. If you only tested a string, Python raised the `TypeError` itself. Add a float case (e.g. `3.14`), which Python happily compares to 0."
+          - when:
+              stdout:
+                contains: "NameError"
+            message: "The test is failing because of a `NameError`, not because of missing behaviour. Did you add `import pytest` at the top of `test_validator.py`?"
+
+  - id: green-rule-3
+    title: "Green: raise TypeError for non-integers"
+    instructions: |
+      Update `validator.py` so `validate_user_id` raises a `TypeError` when `user_id` is a string or a float,
+      while still returning `True` / `False` for integers.
+
+      Run `pytest` until all three tests pass. This is **Green**.
+    hints:
+      - id: g3-hint-1
+        text: "You need to check the *type* of `user_id` before you compare its value."
+      - id: g3-hint-2
+        text: "`isinstance(user_id, int)` tells you whether a value is an integer."
+        reveal_after: 4m
+      - id: g3-hint-3
+        text: |
+          Add a guard at the top of the function that raises if the type is wrong:
+
+          ```python
+          if not isinstance(user_id, int):
+              raise TypeError("user_id must be an integer")
+          ```
+        reveal: on_request
+    checks:
+      - id: g3-tests-pass
+        description: "All three tests pass (Green)"
+        run: pytest
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '[3-9] passed'
+            not_contains: "failed"
+        feedback_on_fail: "All three tests should pass. Read the failure output to see which one is still failing."
+      - id: g3-string-raises
+        description: "A string ID raises TypeError"
+        run: |-
+          python3 -c "from validator import validate_user_id as v; v('abc')"
+        cwd: ${lab_dir}
+        expect:
+          exit_code:
+            not: 0
+          stderr:
+            contains: "TypeError"
+        feedback_on_fail: "`validate_user_id('abc')` should raise a `TypeError`."
+      - id: g3-float-raises
+        description: "A float ID raises TypeError"
+        run: |-
+          python3 -c "from validator import validate_user_id as v; v(3.14)"
+        cwd: ${lab_dir}
+        expect:
+          exit_code:
+            not: 0
+          stderr:
+            contains: "TypeError"
+        feedback_on_fail: "`validate_user_id(3.14)` should raise a `TypeError`. Python won't do this for floats on its own, so you need to check the type explicitly."
+      - id: g3-explicit-raise
+        description: "validator.py raises TypeError explicitly"
+        run: python3 -m py_compile validator.py
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+          files:
+            - path: ${lab_dir}/validator.py
+              contains: "raise TypeError"
+        feedback_on_fail: "Use `raise TypeError(...)` in `validator.py` rather than relying on Python's built-in errors."
+
+  - id: refactor-final
+    title: "Refactor: final clean-up"
+    instructions: |
+      This is the last **Refactor** of the cycle. Review `validator.py` as a whole:
+
+      - Is the order of the logic clear (type check first, then the range check)?
+      - Does the docstring describe all three behaviours, including the `TypeError`?
+      - Is there anything you could remove or simplify?
+
+      Run `pytest` after each change to stay Green.
+
+      The final code should be the result of the full Red-Green-Refactor process, not code written all at once.
+
+      **Stretch (not checked):** in Python, `True` is a subclass of `int`. What does `validate_user_id(True)` return?
+      Should it? How would you drive that decision with a new test?
+    hints:
+      - id: ref3-hint-1
+        text: "Put the type check first. There's no point comparing a value you've already decided is the wrong type."
+      - id: ref3-hint-2
+        text: "A docstring can list what the function returns and what it raises, for example with `Returns:` and `Raises:` sections."
+        reveal_after: 3m
+    checks:
+      - id: ref3-still-green
+        description: "All tests still pass after refactoring"
+        run: pytest
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '[3-9] passed'
+        feedback_on_fail: "Your refactor broke a test. Undo your last change and try a smaller step."
+      - id: ref3-docstring-mentions-error
+        description: "The docstring mentions the TypeError (advisory)"
+        required: false
+        run: python3 -m py_compile validator.py
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+          files:
+            - path: ${lab_dir}/validator.py
+              matches: '"""[^"]*TypeError[^"]*"""'
+        feedback_on_fail: "Consider documenting in the docstring that the function raises `TypeError` for non-integer input."
+
+final_checks:
+  - id: final-tests-pass
+    description: "The full test suite passes"
+    run: pytest
+    cwd: ${lab_dir}
+    timeout: 30s
+    expect:
+      exit_code: 0
+      stdout:
+        matches: '[3-9] passed'
+        not_contains: "failed"
+    feedback_on_fail: "All of your tests should pass."
+  - id: final-business-rules
+    description: "validate_user_id satisfies all three business rules"
+    run: |-
+      python3 -c "from validator import validate_user_id as v; assert v(101) is True; assert v(-5) is False"
+    cwd: ${lab_dir}
+    expect:
+      exit_code: 0
+    feedback_on_fail: "Rules 1 and 2 aren't both holding: positive IDs should return `True` and negative IDs `False`."
+  - id: final-tests-cover-rules
+    description: "test_validator.py covers every rule"
+    depends_on: [final-business-rules]
+    run: python3 -m py_compile test_validator.py
+    cwd: ${lab_dir}
+    expect:
+      exit_code: 0
+      files:
+        - path: ${lab_dir}/test_validator.py
+          contains: "validate_user_id(101)"
+        - path: ${lab_dir}/test_validator.py
+          matches: 'validate_user_id\(-[0-9]+\)'
+        - path: ${lab_dir}/test_validator.py
+          matches: 'raises\(TypeError'
+    feedback_on_fail: "Your test file should contain a test for each rule: a positive ID, a negative ID and a `TypeError` case."
