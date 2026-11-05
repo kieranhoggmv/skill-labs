@@ -26,7 +26,8 @@ description: |
 vars:
   lab_dir: /home/labuser/lab
 
-setup: apt install python3-pip
+setup:
+  - run: apt install python3-pip
 
 steps:
   # ---------------------------------------------------------------------------
