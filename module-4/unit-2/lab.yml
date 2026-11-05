@@ -6,7 +6,7 @@ unit: 2
 progression: linear
 user: labuser
 
-description: |
+lab_instructions: |
   You've been asked to build a **User ID Validator**, `validate_user_id(user_id)`, for your microservice.
   You'll build it with **Test-Driven Development (TDD)**: write a failing test first (**Red**), write just
   enough code to make it pass (**Green**), then tidy up without breaking anything (**Refactor**).
@@ -29,6 +29,7 @@ vars:
 
 setup:
   - run: apt install -y python3-pip nano vim
+  - run: uv venv && . .venv/bin/activate
 
 steps:
   # ---------------------------------------------------------------------------
