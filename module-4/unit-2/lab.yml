@@ -4,6 +4,7 @@ title: "Implementing the TDD Red-Green-Refactor Cycle"
 module: 4
 unit: 2
 progression: linear
+user: labuser
 
 description: |
   You've been asked to build a **User ID Validator**, `validate_user_id(user_id)`, for your microservice.
@@ -27,7 +28,7 @@ vars:
   lab_dir: /home/labuser/lab
 
 setup:
-  - run: apt install -y python3-pip
+  - run: apt install -y python3-pip nano vim
 
 steps:
   # ---------------------------------------------------------------------------
