@@ -26,6 +26,8 @@ description: |
 vars:
   lab_dir: /home/labuser/lab
 
+setup: apt install python3-pip
+
 steps:
   # ---------------------------------------------------------------------------
   # TASK 1: Red - test Rule 1 and set up
@@ -35,17 +37,8 @@ steps:
     instructions: |
       TDD starts with a test runner. You'll use **pytest**.
 
-      1. Install pytest globally:
-
-         ```bash
-         {%pip install -U pytest%}
-         ```
-
-      3. Verify the installation:
-
-         ```bash
-         {%pytest --version%}
-         ```
+      1. Install pytest globally: {%pip install -U pytest%}
+      2. Verify the installation: {%pytest --version%}
 
          Your output should look similar to `pytest 9.x.x`.
     hints:
