@@ -19,7 +19,7 @@ lab_instructions: |
   | 2 | Failure path | Returns `False` for a negative number |
   | 3 | Edge case | Raises a `TypeError` if the ID is a string or a float |
 
-  All of your work happens in `${lab_dir}`, in two files:
+  All of your work happens in your current directory in two files. Skeleton versions have been provided of: 
 
   - `test_validator.py` - your tests
   - `validator.py` - your implementation
@@ -40,19 +40,11 @@ steps:
     instructions: |
       TDD starts with a test runner. You'll use **pytest**.
 
-      1. Install pytest globally: {%pip install -U pytest%}
-      2. Verify the installation: {%pytest --version%}
+      1. See what files are present by running {% ls %}
+      2. Install pytest: {% uv pip install pytest %}
+      3. Verify the installation: {% pytest --version %}
 
          Your output should look similar to `pytest 9.x.x`.
-    hints:
-      - id: install-hint-1
-        text: "Run the install command exactly as written. There's no virtual environment in this lab - pytest should be installed system-wide."
-      - id: install-hint-2
-        text: "If `pip` isn't found, try `pip3 install -U pytest` or `python3 -m pip install -U pytest`."
-        after_failed_attempts: 1
-      - id: install-hint-3
-        text: "If you see an `externally-managed-environment` error, the system Python is protected. In this disposable lab VM you can add `--break-system-packages` to the install command."
-        after_failed_attempts: 2
     checks:
       - id: pytest-installed
         description: "pytest is installed and on the PATH"
@@ -61,31 +53,21 @@ steps:
           exit_code: 0
           stdout:
             matches: 'pytest [0-9]+\.[0-9]+'
-        feedback_on_fail: "pytest isn't available yet. Run `pip install -U pytest`, then `pytest --version`."
+        feedback_on_fail: "pytest isn't available yet. Run `uv pip install pytest`, then `pytest --version`."
         feedback_rules:
           - when:
               exit_code: 127
-            message: "The `pytest` command wasn't found. Has the install finished without errors? If pip put it somewhere not on your PATH, open a new terminal and try again."
+            message: "The `pytest` command wasn't found. Did the install finished without errors?"
 
   - id: baseline-run
     title: "Run pytest with no tests"
     instructions: |
       Before writing any tests, see what pytest does when there's nothing to run.
 
-      1. Make sure you're in `${lab_dir}`.
-      2. Run pytest with no arguments:
-
-         ```bash
-         pytest
-         ```
-
-      You should see that **no tests were found**. Then check the exit code of that run:
-
-      ```bash
-      echo $?
-      ```
-
-      Why would a test runner use a non-zero exit code when there are no tests to run?
+      1. Run pytest with no arguments {% pytest %}
+      2. You should see that **no tests were found**. Then check the exit code of that run: {% echo $? %}
+      
+      Q: Why would a test runner use a non-zero exit code when there are no tests to run?
     hints:
       - id: baseline-hint-1
         text: "pytest only looks in the current folder and below. Run `pwd` to check you're in the lab folder."
@@ -116,10 +98,8 @@ steps:
     instructions: |
       Now write your first test, **before** any implementation exists.
 
-      Open `test_validator.py` and add:
-
-      - an import of `validate_user_id` from the `validator` module
-      - a test function (its name must start with `test_`) that asserts **Rule 1**:
+      1. Open `test_validator.py`. If you chose VS Code, switch to that now. If you chose terminal, open with either {% nano test_validator.py %} or {% vim test_validator.py %}
+      2. Create a test function (its name must start with `test_`) that asserts **Rule 1**:
         `validate_user_id(101)` returns `True`
 
       Don't touch `validator.py` yet. The function doesn't exist, and that's the point.
@@ -127,11 +107,8 @@ steps:
       - id: r1-write-hint-1
         text: "A pytest test is just a function whose name starts with `test_`, containing a plain `assert` statement."
       - id: r1-write-hint-2
-        text: "Your test file needs to import the function it's testing. It doesn't exist yet, but that's expected - you'll deal with it in the next step."
-        reveal_after: 3m
-      - id: r1-write-hint-3
         text: |
-          Here's the shape of it:
+          Here's how it might look:
 
           ```python
           from validator import validate_user_id
@@ -288,15 +265,16 @@ steps:
 
       - a clear docstring explaining what the function does
       - type hints on the parameter and return value
-      - PEP 8 style: `snake_case` names, 4-space indentation, blank lines between definitions
 
       Run `pytest` after every small edit. If the test goes red, undo your last change.
     hints:
       - id: ref1-hint-1
-        text: "Refactoring changes the *structure* of code, not its *behaviour*. Your test is the proof that behaviour hasn't changed."
-      - id: ref1-hint-2
-        text: "A docstring is a triple-quoted string as the first line inside the function. Type hints look like `def f(x: int) -> bool:`."
-        reveal_after: 3m
+        text: | 
+          An example of a better quality function might be:
+          ```
+          def widget_thinger(variable: str) -> bool:
+             """Create a widget, returning True if created, False if not."""
+             ...
     checks:
       - id: ref1-still-green
         description: "Tests still pass after refactoring"
@@ -746,3 +724,5 @@ final_checks:
         - path: ${lab_dir}/test_validator.py
           matches: 'raises\(TypeError'
     feedback_on_fail: "Your test file should contain a test for each rule: a positive ID, a negative ID and a `TypeError` case."
+
+  
