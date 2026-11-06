@@ -1,0 +1,828 @@
+schema: 1
+id: ci-cd-quality-gate
+title: "Architecting the Automated Quality Gate (CI/CD)"
+module: 4
+unit: 3
+progression: linear
+user: labuser
+
+lab_instructions: |
+  In this workshop you'll take the fully tested code from _Workshop 2_ and integrate quality checks into a
+  **simulated** CI/CD pipeline, defined as a local **Bash script** (`deploy.sh`).
+
+  This exercise enforces the **Shift-Left** principle for both application code and
+  **Infrastructure as Code (IaC)**: problems should be caught as early in the pipeline as possible.
+
+  | Task | Focus | Outcome |
+  | :--- | :--- | :--- |
+  | 1 | Setup and base pipeline | Unit tests run in the earliest phase and the pipeline **stops immediately** if they fail |
+  | 2 | IaC security shift-left | `checkov` scans your Terraform and the pipeline **fails fast** on misconfigurations |
+  | 3 | Integration test with mocks | A payment gateway is tested in isolation using a **mock** |
+  | 4 | Pipeline update | Tests are separated into stages that follow the Testing Pyramid, giving fast feedback |
+
+  All of your work happens in your current directory. You'll work with these files:
+
+  - `deploy.sh` - your simulated pipeline
+  - `iac/main.tf` - a Terraform configuration
+  - `db_mock.py` - a mock database query function
+  - `test_integration.py` - your integration tests
+
+vars:
+  lab_dir: /home/labuser/lab
+
+setup:
+  - run: apt install -y nano vim
+  - run: uv venv
+
+steps:
+  # ---------------------------------------------------------------------------
+  # TASK 1: Setup and base pipeline
+  # ---------------------------------------------------------------------------
+  - id: install-tools
+    title: "Install pytest and checkov"
+    instructions: |
+      Start by installing the tools your pipeline will use. **pytest** runs your unit tests and
+      **checkov** scans Infrastructure as Code for security misconfigurations.
+
+      1. See what files are present by running {% ls %}
+      2. Install both tools: {% uv pip install checkov pytest %}
+      3. Verify pytest: {% pytest --version %}
+      4. Verify checkov: {% checkov --version %}
+
+         Your output should be a version number such as `3.x.xxx`.
+    checks:
+      - id: pytest-installed
+        description: "pytest is installed and on the PATH"
+        run: pytest --version 2>&1
+        expect:
+          exit_code: 0
+          stdout:
+            matches: 'pytest [0-9]+\.[0-9]+'
+        feedback_on_fail: "pytest isn't available yet. Run `pip install -U checkov pytest`, then `pytest --version`."
+        feedback_rules:
+          - when:
+              exit_code: 127
+            message: "The `pytest` command wasn't found. Did the install finish without errors?"
+      - id: checkov-installed
+        description: "checkov is installed and on the PATH"
+        run: checkov --version 2>&1
+        timeout: 60s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '[0-9]+\.[0-9]+\.[0-9]+'
+        feedback_on_fail: "checkov isn't available yet. Run `pip install -U checkov pytest`, then `checkov --version`."
+        feedback_rules:
+          - when:
+              exit_code: 127
+            message: "The `checkov` command wasn't found. Did the install finish without errors?"
+
+  - id: baseline-tests
+    title: "Confirm the existing tests pass"
+    instructions: |
+      Before building the pipeline, confirm that the code from the previous workshop is healthy.
+
+      1. Run {% pytest %}
+      2. You should see that the **4 existing tests** succeed.
+    hints:
+      - id: baseline-tests-hint-1
+        text: "pytest only looks in the current folder and below. Run `pwd` to check you're in the lab folder."
+    checks:
+      - id: baseline-tests-pass
+        description: "The 4 existing tests pass"
+        run: pytest
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '4 passed'
+        feedback_on_fail: "pytest should report 4 passing tests. Make sure you're in the lab folder and haven't changed the existing tests."
+        feedback_rules:
+          - when:
+              exit_code: 127
+            message: "The `pytest` command wasn't found. Go back and check the installation."
+          - when:
+              exit_code: 5
+            message: "pytest didn't find any tests. Are you running it from the lab folder?"
+
+  - id: baseline-pipeline
+    title: "Run the empty pipeline"
+    instructions: |
+      Now look at the pipeline you'll be building on.
+
+      1. Run the pipeline: {% bash deploy.sh %}
+      2. You should see that it runs, but does nothing other than print output.
+    hints:
+      - id: baseline-pipeline-hint-1
+        text: "Open `deploy.sh` with {% nano deploy.sh %} or {% vim deploy.sh %} to see what it currently contains."
+    checks:
+      - id: baseline-pipeline-runs
+        description: "deploy.sh runs successfully"
+        run: bash deploy.sh
+        cwd: ${lab_dir}
+        timeout: 60s
+        expect:
+          exit_code: 0
+        feedback_on_fail: "`deploy.sh` should run and exit cleanly at this point. Check you haven't edited it yet, and run it with `bash deploy.sh` from the lab folder."
+
+  - id: unit-test-stage
+    title: "Add the unit tests to the pipeline"
+    instructions: |
+      Add a section to `deploy.sh` that runs the unit tests from the previous unit, in the **earliest** phase
+      of the pipeline.
+
+      The script must **stop immediately** if the tests fail. A pipeline that carries on after a failure
+      isn't a quality gate.
+
+      When you're done, run {% bash deploy.sh %} again. You should see your 4 tests pass.
+    hints:
+      - id: unit-stage-hint-1
+        text: "The pipeline needs to run the same `pytest` command you ran by hand, from inside `deploy.sh`."
+      - id: unit-stage-hint-2
+        text: "`deploy.sh` already contains a `check_status` helper. It checks the exit code of the command that ran just before it, and takes a stage name to report if that command failed."
+        reveal_after: 3m
+      - id: unit-stage-hint-3
+        text: |
+          Call `check_status` on the line **immediately after** the command. Any command in between (even an `echo`) replaces the exit code it checks.
+
+          ```bash
+          pytest
+          check_status "Unit Test Execution"
+          ```
+        reveal: on_request
+    checks:
+      - id: unit-stage-added
+        description: "deploy.sh invokes pytest"
+        run: bash -n deploy.sh
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+          files:
+            - path: ${lab_dir}/deploy.sh
+              contains: "pytest"
+        feedback_on_fail: "`deploy.sh` must be valid Bash and contain a `pytest` invocation."
+      - id: unit-stage-passes
+        description: "The pipeline runs the unit tests and succeeds"
+        depends_on: [unit-stage-added]
+        run: bash deploy.sh
+        cwd: ${lab_dir}
+        timeout: 60s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '4 passed'
+        feedback_on_fail: "Running `bash deploy.sh` should execute pytest and show 4 passing tests."
+      - id: unit-stage-fails-fast
+        description: "The pipeline stops with an error when a unit test fails"
+        depends_on: [unit-stage-added]
+        run: |-
+          tmp=$(mktemp -d) && cp -r . "$tmp" && cd "$tmp" && printf 'def test_injected_failure():\n    assert False\n' > test_zz_injected.py && bash deploy.sh
+        cwd: ${lab_dir}
+        timeout: 60s
+        expect:
+          exit_code:
+            not: 0
+          stdout:
+            matches: '1 failed'
+        feedback_on_fail: "Your pipeline should stop with a non-zero exit code when a test fails. We added a failing test to a copy of your lab and `deploy.sh` still succeeded."
+        feedback_rules:
+          - when:
+              exit_code: 0
+            message: "The pipeline reported success even though a test failed. Make sure the script exits immediately when `pytest` fails, for example by using the `check_status` function."
+      - id: regress-unit-tests
+        description: "The existing unit tests keep passing throughout the lab"
+        regression: true
+        run: pytest -k "not integration"
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '[4-9] passed'
+        feedback_on_fail: "Your original unit tests have stopped passing. A recent change has broken earlier work."
+
+  # ---------------------------------------------------------------------------
+  # TASK 2: IaC security shift-left
+  # ---------------------------------------------------------------------------
+  - id: checkov-add-step
+    title: "Add an IaC security scan"
+    instructions: |
+      Now integrate an _IaC security check_ for your Terraform configuration. This applies the Shift-Left
+      mindset to **Operations**.
+
+      1. Look at the `iac/main.tf` file with {% cat iac/main.tf %}
+
+         This contains a simulated insecure Terraform resource: an AWS S3 bucket incorrectly enabled for
+         public access.
+      2. Add a step to `deploy.sh` that runs `checkov` against the `iac/` directory. The command to add is:
+
+         ```bash
+         checkov \
+           -d iac/ \
+           --framework terraform \
+           --check CKV_AWS_53 \
+           --check CKV_AWS_54 \
+           --check CKV_AWS_55 \
+           --check CKV_AWS_56 \
+           --check CKV2_AWS_65
+         ```
+    hints:
+      - id: checkov-add-hint-1
+        text: "Add the command to `deploy.sh` exactly as given. The trailing `\\` characters let one command span several lines, so there must be nothing after them on the line."
+      - id: checkov-add-hint-2
+        text: "Don't worry about where to place it or how to make it fail fast yet. You'll deal with that once you've seen it run."
+        reveal_after: 3m
+    checks:
+      - id: checkov-step-added
+        description: "deploy.sh runs checkov against iac/ with all five checks"
+        run: bash -n deploy.sh
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+          files:
+            - path: ${lab_dir}/deploy.sh
+              matches: 'checkov[\s\\]+-d iac/?'
+            - path: ${lab_dir}/deploy.sh
+              contains: "--framework terraform"
+            - path: ${lab_dir}/deploy.sh
+              contains: "CKV_AWS_53"
+            - path: ${lab_dir}/deploy.sh
+              contains: "CKV_AWS_54"
+            - path: ${lab_dir}/deploy.sh
+              contains: "CKV_AWS_55"
+            - path: ${lab_dir}/deploy.sh
+              contains: "CKV_AWS_56"
+            - path: ${lab_dir}/deploy.sh
+              contains: "CKV2_AWS_65"
+        feedback_on_fail: "`deploy.sh` must be valid Bash and contain the full `checkov` command: `-d iac/`, `--framework terraform` and all five `--check` options."
+
+  - id: checkov-red
+    title: "Run the pipeline and see the failures"
+    instructions: |
+      Re-run the pipeline: {% bash deploy.sh %}
+
+      Note the output. There should be **5 failed** IaC checks reported by checkov.
+
+      Each failure comes with a policy URL explaining the problem and how to fix it. You'll use these next.
+    hints:
+      - id: checkov-red-hint-1
+        text: "Scroll to the checkov summary near the end of the output. It reads `Passed checks: 0, Failed checks: 5, Skipped checks: 0`."
+      - id: checkov-red-hint-2
+        text: "If you can't see 5 failures, check that your `checkov` command includes all five `--check` options."
+        after_failed_attempts: 2
+    checks:
+      - id: checkov-five-failures
+        description: "checkov reports 5 failed checks"
+        run: bash deploy.sh
+        cwd: ${lab_dir}
+        timeout: 120s
+        expect:
+          stdout:
+            matches: 'Failed checks: 5'
+        feedback_on_fail: "checkov should report `Failed checks: 5`. Check that all five `--check` options are in your command and that `iac/main.tf` is unchanged."
+        feedback_rules:
+          - when:
+              exit_code: 0
+            message: "The pipeline succeeded, so checkov isn't failing anything. Is the `checkov` step in `deploy.sh`, and is `iac/main.tf` still the original insecure version?"
+          - when:
+              stdout:
+                contains: "Failed checks: 4"
+            message: "You only have 4 failures. Has `iac/main.tf` already been edited? Restore the original insecure version so you can fix the checks one at a time."
+
+  - id: checkov-fix
+    title: "Fix the findings one at a time"
+    instructions: |
+      Work through each error in the output and apply a fix to `iac/main.tf`, following the policy URLs.
+
+      Do these **one at a time**:
+
+      1. Fix a single failed check in `iac/main.tf`
+      2. Re-run the pipeline: {% bash deploy.sh %}
+      3. The failure count should reduce by 1 and the pass count should increase by 1
+      4. Repeat until **all 5** checks pass
+    hints:
+      - id: checkov-fix-hint-1
+        text: "Each failed check includes a `Guide:` URL. Open it to see the fix for that specific policy."
+      - id: checkov-fix-hint-2
+        text: "Fixing one check at a time lets you see exactly what each change does. If a fix doesn't reduce the failure count, undo it and re-read the guide."
+        reveal_after: 4m
+      - id: checkov-fix-hint-3
+        text: |
+          Here's what each check is asking for:
+
+          - `CKV_AWS_53`: block public ACLs (`block_public_acls = true`)
+          - `CKV_AWS_54`: block public bucket policies (`block_public_policy = true`)
+          - `CKV_AWS_55`: ignore public ACLs (`ignore_public_acls = true`)
+          - `CKV_AWS_56`: restrict public buckets (`restrict_public_buckets = true`)
+          - `CKV2_AWS_65`: disable ACLs for the bucket (an ownership control of `BucketOwnerEnforced`)
+        reveal: on_request
+    checks:
+      - id: fix-ckv-aws-53
+        description: "CKV_AWS_53 passes"
+        run: checkov -d iac/ --framework terraform --check CKV_AWS_53 --quiet
+        cwd: ${lab_dir}
+        timeout: 120s
+        expect:
+          exit_code: 0
+        feedback_on_fail: "CKV_AWS_53 is still failing. Follow the guide URL in the checkov output."
+      - id: fix-ckv-aws-54
+        description: "CKV_AWS_54 passes"
+        run: checkov -d iac/ --framework terraform --check CKV_AWS_54 --quiet
+        cwd: ${lab_dir}
+        timeout: 120s
+        expect:
+          exit_code: 0
+        feedback_on_fail: "CKV_AWS_54 is still failing. Follow the guide URL in the checkov output."
+      - id: fix-ckv-aws-55
+        description: "CKV_AWS_55 passes"
+        run: checkov -d iac/ --framework terraform --check CKV_AWS_55 --quiet
+        cwd: ${lab_dir}
+        timeout: 120s
+        expect:
+          exit_code: 0
+        feedback_on_fail: "CKV_AWS_55 is still failing. Follow the guide URL in the checkov output."
+      - id: fix-ckv-aws-56
+        description: "CKV_AWS_56 passes"
+        run: checkov -d iac/ --framework terraform --check CKV_AWS_56 --quiet
+        cwd: ${lab_dir}
+        timeout: 120s
+        expect:
+          exit_code: 0
+        feedback_on_fail: "CKV_AWS_56 is still failing. Follow the guide URL in the checkov output."
+      - id: fix-ckv2-aws-65
+        description: "CKV2_AWS_65 passes"
+        run: checkov -d iac/ --framework terraform --check CKV2_AWS_65 --quiet
+        cwd: ${lab_dir}
+        timeout: 120s
+        expect:
+          exit_code: 0
+        feedback_on_fail: "CKV2_AWS_65 is still failing. Follow the guide URL in the checkov output."
+      - id: fix-bucket-kept
+        description: "The S3 bucket resource is still defined"
+        run: cat iac/main.tf
+        cwd: ${lab_dir}
+        expect:
+          files:
+            - path: ${lab_dir}/iac/main.tf
+              contains: "aws_s3_bucket"
+        feedback_on_fail: "Fix the configuration rather than deleting it. `iac/main.tf` should still define the S3 bucket."
+      - id: fix-pipeline-passes
+        description: "The pipeline reports all checkov checks passing"
+        depends_on: [fix-ckv-aws-53, fix-ckv-aws-54, fix-ckv-aws-55, fix-ckv-aws-56, fix-ckv2-aws-65]
+        run: bash deploy.sh
+        cwd: ${lab_dir}
+        timeout: 120s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: 'Passed checks: 5, Failed checks: 0'
+        feedback_on_fail: "The pipeline should end with `Passed checks: 5, Failed checks: 0`."
+
+  - id: checkov-fail-fast
+    title: "Move the scan early and fail fast"
+    instructions: |
+      Now make sure the pipeline is shaped correctly for Shift-Left:
+
+      1. Place the new `checkov` step **as early as possible** in your `deploy.sh` script.
+      2. Configure the pipeline to **fail fast** if `checkov` finds a critical misconfiguration, using the
+         `check_status` function provided.
+
+      Run {% bash deploy.sh %} to confirm the pipeline still succeeds.
+    hints:
+      - id: ff-hint-1
+        text: "Read the definition of `check_status` in `deploy.sh`. It checks the exit code of the previous command and takes a stage name to report on failure."
+      - id: ff-hint-2
+        text: "`check_status` must run on the line straight after the `checkov` command, so it inspects that command's exit code."
+        reveal_after: 3m
+      - id: ff-hint-3
+        text: |
+          For example:
+
+          ```bash
+          checkov -d iac/ ... --check CKV2_AWS_65
+          check_status "IaC Security Scan"
+          ```
+        reveal: on_request
+    checks:
+      - id: ff-pipeline-passes
+        description: "The pipeline still succeeds with the fixed Terraform"
+        run: bash deploy.sh
+        cwd: ${lab_dir}
+        timeout: 120s
+        expect:
+          exit_code: 0
+        feedback_on_fail: "The pipeline should succeed now that all five checks pass. Read the output to see which step is failing."
+      - id: ff-fails-on-insecure-iac
+        description: "The pipeline stops with an error when checkov finds a misconfiguration"
+        depends_on: [ff-pipeline-passes]
+        run: |-
+          tmp=$(mktemp -d) && cp -r . "$tmp" && cd "$tmp" && cat > iac/main.tf <<'EOF'
+          resource "aws_s3_bucket" "b" {
+            bucket = "insecure-test-bucket"
+          }
+          resource "aws_s3_bucket_public_access_block" "b" {
+            bucket                  = aws_s3_bucket.b.id
+            block_public_acls       = false
+            block_public_policy     = false
+            ignore_public_acls      = false
+            restrict_public_buckets = false
+          }
+          EOF
+          bash deploy.sh
+        cwd: ${lab_dir}
+        timeout: 120s
+        expect:
+          exit_code:
+            not: 0
+          stdout:
+            contains: "Failed checks"
+        feedback_on_fail: "Your pipeline should stop with a non-zero exit code when checkov finds a misconfiguration. We put an insecure configuration into a copy of your lab and `deploy.sh` still succeeded."
+        feedback_rules:
+          - when:
+              exit_code: 0
+            message: "The pipeline reported success even though checkov failed. Use the `check_status` function straight after the `checkov` command so the script stops on failure."
+      - id: ff-uses-check-status
+        description: "check_status is called straight after the checkov step (advisory)"
+        required: false
+        run: bash -n deploy.sh
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+          files:
+            - path: ${lab_dir}/deploy.sh
+              matches: 'CKV2_AWS_65[ \t]*\n[ \t]*check_status'
+        feedback_on_fail: "Consider calling the provided `check_status` function after the `checkov` command."
+      - id: ff-checkov-early
+        description: "The checkov step comes before the unit tests (advisory)"
+        required: false
+        run: bash -n deploy.sh
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+          files:
+            - path: ${lab_dir}/deploy.sh
+              matches: '(?s)checkov.*pytest'
+        feedback_on_fail: "Shift-Left means finding problems as early as possible. Consider whether the `checkov` step could run before the unit tests."
+
+  # ---------------------------------------------------------------------------
+  # TASK 3: Integration test with mocks
+  # ---------------------------------------------------------------------------
+  - id: mock-success-test
+    title: "Test a successful payment with a mock"
+    instructions: |
+      Now develop an _Integration Test_ that verifies communication with a critical external dependency:
+      a **Payment Gateway**. You'll use a **Mock** object to keep the test isolated and fast.
+
+      1. Look at `db_mock.py` with {% cat db_mock.py %}
+
+         This contains a function to mock a database query.
+      2. In `test_integration.py`, add a test function that verifies a successful payment. It should:
+         1. Define a custom `user_id`
+         2. Capture the response from `mock_payment_database_query(user_id, 200)`
+         3. Ensure the `user_id` returned in the response is valid (using `validate_user_id` from the previous
+            workshop) and matches the passed `user_id`
+         4. Ensure the `payment_status` in the response is `PAID`
+      3. Run {% pytest test_integration.py %} to confirm that the integration test passes when using the mock object.
+    hints:
+      - id: mock-success-hint-1
+        text: "A pytest test is a function whose name starts with `test_`, containing plain `assert` statements. You'll need to import `mock_payment_database_query` from `db_mock` and `validate_user_id` from `validator`."
+      - id: mock-success-hint-2
+        text: "The mock returns a dictionary with `user_id`, `payment_status` and `query_time_ms` keys. Your `user_id` must be a valid ID from Workshop 2: `validate_user_id` raises a `TypeError` for anything that isn't an integer, and returns `False` for negatives."
+        reveal_after: 3m
+      - id: mock-success-hint-3
+        text: |
+          Here's the shape of the test:
+
+          ```python
+          from db_mock import mock_payment_database_query
+          from validator import validate_user_id
+
+          def test_successful_payment_status_integration():
+              user_id = 9001
+              db_response = mock_payment_database_query(user_id, 200)
+              assert validate_user_id(db_response["user_id"]) is True
+              assert db_response["user_id"] == user_id
+              assert db_response["payment_status"] == "PAID"
+          ```
+        reveal: on_request
+    checks:
+      - id: mock-success-compiles
+        description: "test_integration.py is valid Python"
+        run: python3 -m py_compile test_integration.py
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+        feedback_on_fail: "`test_integration.py` has a syntax error. Check indentation, colons and brackets."
+      - id: mock-success-content
+        description: "test_integration.py contains a test for a successful payment"
+        depends_on: [mock-success-compiles]
+        run: cat test_integration.py
+        cwd: ${lab_dir}
+        expect:
+          files:
+            - path: ${lab_dir}/test_integration.py
+              matches: 'def test_'
+            - path: ${lab_dir}/test_integration.py
+              matches: 'mock_payment_database_query\(\s*\w+\s*,\s*200\s*\)'
+            - path: ${lab_dir}/test_integration.py
+              matches: 'validate_user_id\('
+            - path: ${lab_dir}/test_integration.py
+              matches: 'assert.*\["user_id"\]\s*==\s*user_id'
+            - path: ${lab_dir}/test_integration.py
+              contains: "PAID"
+        feedback_on_fail: "Your test should call `mock_payment_database_query(user_id, 200)`, check the returned `user_id` with `validate_user_id`, assert it matches the `user_id` you passed, and assert `payment_status` is `PAID`."
+      - id: mock-success-passes
+        description: "The integration test passes"
+        depends_on: [mock-success-content]
+        run: pytest test_integration.py
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '[1-9] passed'
+            not_contains: "failed"
+        feedback_on_fail: "pytest should report your integration test passing."
+        feedback_rules:
+          - when:
+              exit_code: 5
+            message: "pytest didn't find any tests. Your function's name must start with `test_`."
+          - when:
+              stdout:
+                contains: "ImportError"
+            message: "pytest can't import the mock. Check you're importing `mock_payment_database_query` from `db_mock`."
+          - when:
+              stdout:
+                contains: "TypeError"
+            message: "`validate_user_id` raised a `TypeError`. Your `user_id` must be an integer, such as `9001`, not a string or float."
+          - when:
+              stdout:
+                contains: "failed"
+            message: "The test fails. Read the assertion output: what does the mock actually return for a `user_id` and `payment_status`?"
+
+  - id: mock-pending-test
+    title: "Test a pending payment"
+    instructions: |
+      Add another test, this time for **pending** payments.
+
+      It should use the same logic as before, but call `mock_payment_database_query(user_id, 500)` and check that
+      `payment_status` is `PENDING`.
+
+      Run {% pytest test_integration.py %} again. Both tests should pass.
+    hints:
+      - id: mock-pending-hint-1
+        text: "Copy the structure of your first test, then change the status code you pass to the mock and the status you expect back."
+      - id: mock-pending-hint-2
+        text: "Give the new function its own name, such as `test_failed_payment_status_integration`. If two functions share a name, the second silently replaces the first. Use a different valid integer `user_id` too, such as `9002`."
+        reveal_after: 3m
+      - id: mock-pending-hint-3
+        text: "Read the docstring in `db_mock.py`: the mock returns `PAID` for a 200 status code and `PENDING` for anything else."
+        reveal: on_request
+    checks:
+      - id: mock-pending-collected
+        description: "pytest now collects at least two integration tests"
+        run: pytest test_integration.py --collect-only -q
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '[2-9] tests collected'
+        feedback_on_fail: "pytest should now find two tests in `test_integration.py`. Is your new function named `test_...` and does it have a different name from the first?"
+      - id: mock-pending-content
+        description: "A test checks for a PENDING payment"
+        run: cat test_integration.py
+        cwd: ${lab_dir}
+        expect:
+          files:
+            - path: ${lab_dir}/test_integration.py
+              matches: 'mock_payment_database_query\(\s*\w+\s*,\s*500\s*\)'
+            - path: ${lab_dir}/test_integration.py
+              contains: "PENDING"
+        feedback_on_fail: "Your new test should call `mock_payment_database_query(user_id, 500)` and assert `payment_status` is `PENDING`."
+      - id: mock-pending-passes
+        description: "Both integration tests pass"
+        depends_on: [mock-pending-collected, mock-pending-content]
+        run: pytest test_integration.py
+        cwd: ${lab_dir}
+        timeout: 30s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '[2-9] passed'
+            not_contains: "failed"
+        feedback_on_fail: "Both integration tests should pass. Read the failure output to see which assertion is failing."
+
+  # ---------------------------------------------------------------------------
+  # TASK 4: Pipeline update
+  # ---------------------------------------------------------------------------
+  - id: pipeline-baseline
+    title: "Run the pipeline as it stands"
+    instructions: |
+      Finalise your `deploy.sh` script to explicitly separate your tests into stages. This follows the
+      **Testing Pyramid** and prioritises fast feedback.
+
+      Start by running your pipeline as-is: {% bash deploy.sh %}
+
+      It should currently succeed.
+    hints:
+      - id: pipeline-baseline-hint-1
+        text: "If the pipeline fails, read the output to find which stage failed, and go back to the matching task to fix it."
+    checks:
+      - id: pipeline-baseline-passes
+        description: "The pipeline currently succeeds"
+        run: bash deploy.sh
+        cwd: ${lab_dir}
+        timeout: 120s
+        expect:
+          exit_code: 0
+        feedback_on_fail: "The pipeline should succeed before you restructure it. Read the output to see which step is failing."
+        feedback_rules:
+          - when:
+              stdout:
+                contains: "Failed checks"
+            message: "checkov is still reporting failures. Go back to Task 2 and fix the remaining checks."
+          - when:
+              stdout:
+                contains: "failed"
+            message: "A test is failing. Run `pytest` directly to see which one."
+
+  - id: pipeline-unit-stage
+    title: "Limit the unit stage to non-integration tests"
+    instructions: |
+      Your pipeline's `pytest` invocation currently runs **every** test, including the integration tests you
+      wrote in Task 3.
+
+      Update the TDD `pytest` invocation to `pytest -k "not integration"` so it explicitly runs only the
+      non-integration (unit) tests.
+
+      Run {% bash deploy.sh %}. You should see your 4 unit tests pass, with the integration tests deselected.
+    hints:
+      - id: unit-stage-k-hint-1
+        text: "`-k` selects tests by a keyword expression. `not integration` excludes any test whose name includes `integration`."
+      - id: unit-stage-k-hint-2
+        text: "Look for the `deselected` count in pytest's summary line. That shows which tests were excluded."
+        reveal_after: 3m
+    checks:
+      - id: unit-stage-k-added
+        description: "deploy.sh excludes integration tests from the unit stage"
+        run: bash -n deploy.sh
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+          files:
+            - path: ${lab_dir}/deploy.sh
+              matches: 'pytest\s.*-k\s+.not integration'
+        feedback_on_fail: "Update the `pytest` command in `deploy.sh` to `pytest -k \"not integration\"`."
+      - id: unit-stage-k-works
+        description: "The pipeline runs the unit tests and deselects the integration tests"
+        depends_on: [unit-stage-k-added]
+        run: bash deploy.sh
+        cwd: ${lab_dir}
+        timeout: 120s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '4 passed'
+            contains: "deselected"
+        feedback_on_fail: "pytest should report 4 passed and some tests deselected. Check the quoting in `-k \"not integration\"`."
+
+  - id: pipeline-integration-stage
+    title: "Add an integration stage"
+    instructions: |
+      Add a new stage to `deploy.sh` that runs {% pytest test_integration.py %}.
+
+      This stage runs **only** the new integration checks from Task 3.
+
+      Run {% bash deploy.sh %}. You should now see the integration tests pass as their own step.
+    hints:
+      - id: integration-stage-hint-1
+        text: "Integration tests are slower and broader than unit tests, so they belong in a later stage. If the unit tests fail, you don't want to waste time running them."
+      - id: integration-stage-hint-2
+        text: "Call `check_status` on the line straight after this command too, so a failing integration test stops the pipeline."
+        reveal_after: 4m
+    checks:
+      - id: integration-stage-added
+        description: "deploy.sh runs test_integration.py as its own step"
+        run: bash -n deploy.sh
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+          files:
+            - path: ${lab_dir}/deploy.sh
+              matches: 'pytest\s+test_integration\.py'
+        feedback_on_fail: "Add a stage to `deploy.sh` that runs `pytest test_integration.py`."
+      - id: integration-stage-runs
+        description: "The pipeline runs both the unit and integration tests"
+        depends_on: [integration-stage-added]
+        run: bash deploy.sh
+        cwd: ${lab_dir}
+        timeout: 120s
+        expect:
+          exit_code: 0
+          stdout:
+            matches: '4 passed'
+            contains: "2 passed"
+        feedback_on_fail: "The pipeline should show 4 unit tests passing and 2 integration tests passing."
+
+  - id: pipeline-final
+    title: "Organise the stages and run the pipeline"
+    instructions: |
+      Make sure all your checks sit in the correct stage section of `deploy.sh`:
+
+      - **STAGE 1: Build/Code** holds the fast checks: the IaC security scan and the unit tests
+      - **STAGE 2: Staging/Integration** holds the integration tests
+      - **STAGE 3: Deployment** comes last and only runs if everything before it passed
+
+      Run the pipeline and ensure it succeeds: {% bash deploy.sh %}
+    hints:
+      - id: pipeline-final-hint-1
+        text: "Look for the `STAGE 1`, `STAGE 2` and `STAGE 3` headers in `deploy.sh`. Each of your commands, and its `check_status` call, should sit under the right one."
+      - id: pipeline-final-hint-2
+        text: "The Testing Pyramid has many fast unit tests at the base and fewer, slower integration tests above. Fast, cheap checks go in Stage 1 so you get feedback quickly."
+        reveal_after: 3m
+    checks:
+      - id: pipeline-final-stages
+        description: "Each check is in the correct stage section"
+        run: bash -n deploy.sh
+        cwd: ${lab_dir}
+        expect:
+          exit_code: 0
+          files:
+            - path: ${lab_dir}/deploy.sh
+              matches: '(?s)STAGE 1.*checkov.*pytest\s.*-k\s+.not integration.*STAGE 2.*pytest\s+test_integration\.py.*STAGE 3'
+        feedback_on_fail: "The IaC scan and the unit tests (`pytest -k \"not integration\"`) belong under STAGE 1, and `pytest test_integration.py` belongs under STAGE 2, before the STAGE 3 header."
+      - id: pipeline-final-passes
+        description: "The pipeline succeeds end to end"
+        run: bash deploy.sh
+        cwd: ${lab_dir}
+        timeout: 120s
+        expect:
+          exit_code: 0
+          stdout:
+            not_contains: "failed"
+        feedback_on_fail: "The pipeline should succeed. Read the output to see which stage is failing."
+
+final_checks:
+  - id: final-pipeline-passes
+    description: "The pipeline succeeds end to end"
+    run: bash deploy.sh
+    cwd: ${lab_dir}
+    timeout: 120s
+    expect:
+      exit_code: 0
+    feedback_on_fail: "Your pipeline should succeed. Run `bash deploy.sh` and read the output."
+  - id: final-all-tests-pass
+    description: "The full test suite passes"
+    run: pytest
+    cwd: ${lab_dir}
+    timeout: 30s
+    expect:
+      exit_code: 0
+      stdout:
+        matches: '[6-9] passed'
+        not_contains: "failed"
+    feedback_on_fail: "All of your tests should pass: the 4 unit tests and your 2 integration tests."
+  - id: final-iac-secure
+    description: "All five IaC security checks pass"
+    run: |-
+      checkov -d iac/ --framework terraform --check CKV_AWS_53 --check CKV_AWS_54 --check CKV_AWS_55 --check CKV_AWS_56 --check CKV2_AWS_65 --quiet
+    cwd: ${lab_dir}
+    timeout: 120s
+    expect:
+      exit_code: 0
+    feedback_on_fail: "At least one IaC check is still failing. Run the pipeline and read the checkov output."
+  - id: final-pipeline-stages
+    description: "deploy.sh contains the IaC scan, unit stage and integration stage"
+    depends_on: [final-pipeline-passes]
+    run: bash -n deploy.sh
+    cwd: ${lab_dir}
+    expect:
+      exit_code: 0
+      files:
+        - path: ${lab_dir}/deploy.sh
+          contains: "checkov"
+        - path: ${lab_dir}/deploy.sh
+          matches: 'pytest\s.*-k\s+.not integration'
+        - path: ${lab_dir}/deploy.sh
+          matches: 'pytest\s+test_integration\.py'
+    feedback_on_fail: "Your pipeline should contain a `checkov` scan, a unit test stage using `pytest -k \"not integration\"`, and an integration stage using `pytest test_integration.py`."
+  - id: final-integration-tests-cover-statuses
+    description: "test_integration.py covers both paid and pending payments"
+    run: python3 -m py_compile test_integration.py
+    cwd: ${lab_dir}
+    expect:
+      exit_code: 0
+      files:
+        - path: ${lab_dir}/test_integration.py
+          matches: 'mock_payment_database_query\(\s*\w+\s*,\s*200\s*\)'
+        - path: ${lab_dir}/test_integration.py
+          contains: "PAID"
+        - path: ${lab_dir}/test_integration.py
+          matches: 'mock_payment_database_query\(\s*\w+\s*,\s*500\s*\)'
+        - path: ${lab_dir}/test_integration.py
+          contains: "PENDING"
+        - path: ${lab_dir}/test_integration.py
+          matches: 'validate_user_id\('
+    feedback_on_fail: "Your integration tests should cover a successful payment (200, `PAID`) and a pending payment (500, `PENDING`)."
