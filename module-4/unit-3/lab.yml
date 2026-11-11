@@ -7,6 +7,14 @@ progression: linear
 user: labuser
 
 lab_instructions: |
+  ## Commands
+  Inside the lab environment, you can use the following commands:
+  * `start` to start the lab (or click the start button)
+  * `check` to see if you have completed a task
+  * `hint` to see if there are any extra hints available
+  * `back` and `next` to move between tasks, providing you have completed them
+  
+  ## Lab Overview
   In this workshop you'll take the fully tested code from _Workshop 2_ and integrate quality checks into a
   **simulated** CI/CD pipeline, defined as a local **Bash script** (`deploy.sh`).
 
